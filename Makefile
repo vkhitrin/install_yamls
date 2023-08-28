@@ -310,15 +310,15 @@ DATAPLANE_KUTTL_NAMESPACE ?= dataplane-kuttl-tests
 DATAPLANE_DEFAULT_GW      ?= 192.168.122.1
 
 # Manila
-MANILA_IMG            ?= quay.io/openstack-k8s-operators/manila-operator-index:latest
-MANILA_REPO           ?= https://github.com/openstack-k8s-operators/manila-operator.git
-MANILA_BRANCH         ?= main
-MANILA                ?= config/samples/manila_v1beta1_manila.yaml
-MANILA_CR             ?= ${OPERATOR_BASE_DIR}/manila-operator/${MANILA}
+MANILA_IMG              ?= quay.io/openstack-k8s-operators/manila-operator-index:latest
+MANILA_REPO             ?= https://github.com/openstack-k8s-operators/manila-operator.git
+MANILA_BRANCH           ?= main
+MANILA                  ?= config/samples/manila_v1beta1_manila.yaml
+MANILA_CR               ?= ${OPERATOR_BASE_DIR}/manila-operator/${MANILA}
 # TODO: Image customizations for all Manila services
-MANILA_KUTTL_CONF     ?= ${OPERATOR_BASE_DIR}/manila-operator/kuttl-test.yaml
-MANILA_KUTTL_DIR      ?= ${OPERATOR_BASE_DIR}/manila-operator/tests/kuttl/tests
-MANILA_KUTTL_TIMEOUT  ?= 180
+MANILA_KUTTL_CONF       ?= ${OPERATOR_BASE_DIR}/manila-operator/kuttl-test.yaml
+MANILA_KUTTL_DIR        ?= ${OPERATOR_BASE_DIR}/manila-operator/tests/kuttl/tests
+MANILA_KUTTL_NAMESPACE  ?= manila-kuttl-tests
 
 # Ceph
 CEPH_IMG            ?= quay.io/ceph/demo:latest
@@ -620,6 +620,7 @@ edpm_deploy_baremetal_prep: export EDPM_BMH_NAMESPACE=${BMH_NAMESPACE}
 edpm_deploy_baremetal_prep: export EDPM_PROVISIONING_INTERFACE=${BMO_PROVISIONING_INTERFACE}
 edpm_deploy_baremetal_prep: export EDPM_CTLPLANE_INTERFACE=${BMO_CTLPLANE_INTERFACE}
 edpm_deploy_baremetal_prep: export EDPM_TOTAL_NODES=${DATAPLANE_TOTAL_NODES}
+edpm_deploy_baremetal_prep: export OPENSTACK_RUNNER_IMG=${DATAPLANE_RUNNER_IMG}
 edpm_deploy_baremetal_prep: export EDPM_NETWORK_CONFIG_TEMPLATE=${DATAPLANE_NETWORK_CONFIG_TEMPLATE}
 edpm_deploy_baremetal_prep: export EDPM_SSHD_ALLOWED_RANGES=${DATAPLANE_SSHD_ALLOWED_RANGES}
 edpm_deploy_baremetal_prep: export EDPM_CHRONY_NTP_SERVER=${DATAPLANE_CHRONY_NTP_SERVER}
@@ -636,6 +637,10 @@ edpm_deploy_baremetal_prep: edpm_deploy_cleanup ## prepares the CR to install th
 	$(eval $(call vars,$@,dataplane))
 	mkdir -p ${OPERATOR_BASE_DIR} ${OPERATOR_DIR} ${DEPLOY_DIR}
 	pushd ${OPERATOR_BASE_DIR} && git clone ${GIT_CLONE_OPTS} $(if $(DATAPLANE_BRANCH),-b ${DATAPLANE_BRANCH}) ${DATAPLANE_REPO} "${OPERATOR_NAME}-operator" && popd
+	cp devsetup/edpm/services/* ${OPERATOR_BASE_DIR}/${OPERATOR_NAME}-operator/config/services
+	DEPLOY_DIR=${OPERATOR_BASE_DIR}/${OPERATOR_NAME}-operator/config/services KIND=OpenStackDataPlaneService bash scripts/gen-edpm-services-kustomize.sh
+	oc kustomize ${OPERATOR_BASE_DIR}/${OPERATOR_NAME}-operator/config/services | oc apply -f -
+	oc apply -f devsetup/edpm/config/ansible-ee-env.yaml
 	cp ${DATAPLANE_BAREMETAL_CR} ${DEPLOY_DIR}
 	bash scripts/gen-edpm-baremetal-kustomize.sh
 	devsetup/scripts/gen-ansibleee-ssh-key.sh
@@ -1505,9 +1510,11 @@ glance_kuttl: kuttl_common_prep glance glance_deploy_prep ## runs kuttl tests fo
 
 .PHONY: manila_kuttl_run
 manila_kuttl_run: ## runs kuttl tests for the manila operator,
-	kubectl-kuttl test --config ${MANILA_KUTTL_CONF} ${MANILA_KUTTL_DIR}
+	kubectl-kuttl test --config ${MANILA_KUTTL_CONF} ${MANILA_KUTTL_DIR} --namespace ${NAMESPACE}
 
 .PHONY: manila_kuttl
+manila_kuttl: export NAMESPACE = ${MANILA_KUTTL_NAMESPACE}
+# Set the value of $MANILA_KUTTL_NAMESPACE if you want to run manila kuttl tests in a namespace different than the default (manila-kuttl-tests)
 manila_kuttl: kuttl_common_prep ceph manila manila_deploy_prep ## runs kuttl tests for manila operator. Installs manila operator and cleans up previous deployments before and after running the tests.
 	$(eval $(call vars,$@,manila))
 	make wait
